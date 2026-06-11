@@ -100,31 +100,33 @@ exports.getTemperatureTrends = async (req, res) => {
     const { period = "week", sensor_id } = req.query;
     const userId = req.user.id;
 
-    let interval;
     let dateFormat;
+    let groupFormat;
     const now = new Date();
     let startDate;
+    const sequelize = require("../config/database");
 
     switch (period) {
       case "day":
         startDate = new Date(now.setHours(0, 0, 0, 0));
-        interval = "HOUR";
+        // SQLite uses strftime for date formatting
         dateFormat = "%Y-%m-%d %H:00:00";
+        groupFormat = "%Y-%m-%d %H";
         break;
       case "week":
         startDate = new Date(now.setDate(now.getDate() - 7));
-        interval = "DAY";
         dateFormat = "%Y-%m-%d";
+        groupFormat = "%Y-%m-%d";
         break;
       case "month":
         startDate = new Date(now.setMonth(now.getMonth() - 1));
-        interval = "DAY";
         dateFormat = "%Y-%m-%d";
+        groupFormat = "%Y-%m-%d";
         break;
       default:
         startDate = new Date(now.setDate(now.getDate() - 7));
-        interval = "DAY";
         dateFormat = "%Y-%m-%d";
+        groupFormat = "%Y-%m-%d";
     }
 
     const whereClause = {
@@ -135,11 +137,11 @@ exports.getTemperatureTrends = async (req, res) => {
       whereClause.sensor_id = sensor_id;
     }
 
-    // FIX: Specify table name for createdAt to avoid ambiguity
+    // SQLite uses strftime instead of DATE_FORMAT
     const trends = await Reading.findAll({
       attributes: [
         [
-          sequelize.fn("DATE_FORMAT", sequelize.col("Reading.createdAt"), dateFormat),
+          sequelize.fn("strftime", dateFormat, sequelize.col("Reading.createdAt")),
           "timePeriod"
         ],
         [sequelize.fn("AVG", sequelize.col("temperature")), "avgTemp"],
@@ -157,11 +159,11 @@ exports.getTemperatureTrends = async (req, res) => {
       ],
       where: whereClause,
       group: [
-        sequelize.fn("DATE_FORMAT", sequelize.col("Reading.createdAt"), dateFormat)
+        sequelize.fn("strftime", groupFormat, sequelize.col("Reading.createdAt"))
       ],
       order: [
         [
-          sequelize.fn("DATE_FORMAT", sequelize.col("Reading.createdAt"), dateFormat),
+          sequelize.fn("strftime", groupFormat, sequelize.col("Reading.createdAt")),
           "ASC"
         ]
       ],

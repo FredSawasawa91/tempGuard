@@ -6,16 +6,16 @@ const sequelize = require("../config/database");
 exports.getAnalyticsSummary = async (req, res) => {
   try {
     const { sensor_id, startDate, endDate } = req.query;
-
+    
     const sensorWhereClause = { user_id: req.user.id };
-    if (sensor_id) {
+    if (sensor_id && sensor_id !== "ALL") {
       sensorWhereClause.id = sensor_id;
     }
 
     const readingWhereClause = {};
     if (startDate && endDate) {
       readingWhereClause.createdAt = {
-        [Op.between]: [new Date(startDate), new Date(endDate)],
+        [Op.between]: [new Date(startDate), new Date(endDate)]
       };
     }
 
@@ -25,33 +25,54 @@ exports.getAnalyticsSummary = async (req, res) => {
         [sequelize.fn("MIN", sequelize.col("temperature")), "minTemp"],
         [sequelize.fn("MAX", sequelize.col("temperature")), "maxTemp"],
         [sequelize.fn("COUNT", sequelize.col("Reading.id")), "totalReadings"],
-        [sequelize.fn("STDDEV", sequelize.col("temperature")), "stdDev"],
+        // SQLite uses the correct STDDEV function
+        [sequelize.fn("ROUND", sequelize.fn("AVG", sequelize.col("temperature")), 2), "roundedAvg"],
       ],
-      include: [
-        {
-          model: Sensor,
-          where: sensorWhereClause,
-          attributes: [],
-        },
-      ],
+      include: [{
+        model: Sensor,
+        where: sensorWhereClause,
+        attributes: [],
+        required: true
+      }],
       where: readingWhereClause,
       raw: true,
     });
 
-    // Get alerts count
-    const alertsCount = await Reading.count({
-      include: [
-        {
+    // Calculate standard deviation manually for SQLite if needed
+    let stdDev = null;
+    if (stats.totalReadings > 1) {
+      const readings = await Reading.findAll({
+        attributes: ['temperature'],
+        include: [{
           model: Sensor,
           where: sensorWhereClause,
-        },
-      ],
+          attributes: [],
+          required: true
+        }],
+        where: readingWhereClause,
+        raw: true,
+      });
+      
+      const temps = readings.map(r => r.temperature);
+      const mean = temps.reduce((a, b) => a + b, 0) / temps.length;
+      const squareDiffs = temps.map(value => Math.pow(value - mean, 2));
+      const avgSquareDiff = squareDiffs.reduce((a, b) => a + b, 0) / temps.length;
+      stdDev = Math.sqrt(avgSquareDiff).toFixed(2);
+    }
+
+    // Get alerts count
+    const alertsCount = await Reading.count({
+      include: [{
+        model: Sensor,
+        where: sensorWhereClause,
+        required: true
+      }],
       where: {
         temperature: {
-          [Op.gt]: sequelize.col("Sensor.max_temp"),
+          [Op.gt]: sequelize.col("Sensor.max_temp")
         },
-        ...readingWhereClause,
-      },
+        ...readingWhereClause
+      }
     });
 
     res.json({
@@ -61,12 +82,12 @@ exports.getAnalyticsSummary = async (req, res) => {
         minTemp: stats.minTemp ? parseFloat(stats.minTemp).toFixed(2) : null,
         maxTemp: stats.maxTemp ? parseFloat(stats.maxTemp).toFixed(2) : null,
         totalReadings: stats.totalReadings || 0,
-        stdDev: stats.stdDev ? parseFloat(stats.stdDev).toFixed(2) : null,
+        stdDev: stdDev,
         alertsCount,
-      },
+      }
     });
   } catch (error) {
-    console.error(error);
+    console.error("Analytics summary error:", error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -84,10 +105,10 @@ exports.getHourlyAnalytics = async (req, res) => {
       sensorWhereClause.id = sensor_id;
     }
 
-    // FIX: Specify table name for createdAt to avoid ambiguity
+    // SQLite uses strftime for hour extraction
     const hourlyData = await Reading.findAll({
       attributes: [
-        [sequelize.fn("HOUR", sequelize.col("Reading.createdAt")), "hour"],
+        [sequelize.fn("strftime", "%H", sequelize.col("Reading.createdAt")), "hour"],
         [sequelize.fn("AVG", sequelize.col("temperature")), "avgTemp"],
         [sequelize.fn("MIN", sequelize.col("temperature")), "minTemp"],
         [sequelize.fn("MAX", sequelize.col("temperature")), "maxTemp"],
@@ -104,8 +125,8 @@ exports.getHourlyAnalytics = async (req, res) => {
           [Op.between]: [targetDate, nextDay]
         }
       },
-      group: [sequelize.fn("HOUR", sequelize.col("Reading.createdAt"))],
-      order: [[sequelize.fn("HOUR", sequelize.col("Reading.createdAt")), "ASC"]],
+      group: [sequelize.fn("strftime", "%H", sequelize.col("Reading.createdAt"))],
+      order: [[sequelize.fn("strftime", "%H", sequelize.col("Reading.createdAt")), "ASC"]],
       raw: true,
     });
 
