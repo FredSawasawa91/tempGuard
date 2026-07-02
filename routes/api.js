@@ -10,6 +10,7 @@ const dashboardController = require("../controllers/dashboardController");
 const analyticsController = require("../controllers/analyticsController");
 const userController = require("../controllers/userController");
 const reportController = require("../controllers/reportController");
+const alertController = require("../controllers/alertController");
 
 // ==================== AUTH ROUTES ====================
 router.post("/auth/register", authController.register);
@@ -82,5 +83,10 @@ router.post("/reports", authenticateToken, reportController.generateReport);
 router.delete("/reports/:id", authenticateToken, reportController.deleteReport);
 router.get("/reports/:id/download", authenticateToken, reportController.downloadReportFile);
 
+// ==================== ALERT ROUTES ====================
+router.get("/alerts", authenticateToken, alertController.getAlerts);
+router.get("/alerts/stats", authenticateToken, alertController.getAlertStats);
+router.put("/alerts/:id/acknowledge", authenticateToken, alertController.acknowledgeAlert);
+router.delete("/alerts/:id", authenticateToken, alertController.deleteAlert);
 
 module.exports = router;

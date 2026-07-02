@@ -1,52 +1,40 @@
 const Sensor = require("../models/Sensor");
 const Reading = require("../models/Reading");
 const MaintenanceTask = require("../models/maintenance");
+const Alert = require("../models/Alert");
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const userId = req.user.id;
-
     // Get sensor counts
-    const totalSensors = await Sensor.count({ where: { user_id: userId } });
+    const totalSensors = await Sensor.count();
     const activeSensors = await Sensor.count({
-      where: { user_id: userId, status: "active" },
+      where: { status: "active" },
     });
     const sensorsInMaintenance = await Sensor.count({
-      where: { user_id: userId, status: "maintenance" },
+      where: { status: "maintenance" },
     });
 
     // Get maintenance summary
     const today = new Date().toISOString().split("T")[0];
     const overdueTasks = await MaintenanceTask.count({
-      include: [{ model: Sensor, where: { user_id: userId } }],
       where: { status: "Overdue" },
     });
     const dueSoonTasks = await MaintenanceTask.count({
-      include: [{ model: Sensor, where: { user_id: userId } }],
       where: { status: "Due Soon" },
     });
 
     // Get total readings
     const totalReadings = await Reading.count({
-      include: [{ model: Sensor, where: { user_id: userId } }],
+      include: [{ model: Sensor, required: true }],
     });
 
-    // Get recent alerts (temperature above max_temp)
-    const alerts = await Reading.findAll({
-      include: [
-        {
-          model: Sensor,
-          where: { user_id: userId },
-          required: true,
-        },
-      ],
-      where: {
-        temperature: {
-          [Op.gt]: sequelize.col("Sensor.max_temp"),
-        },
-      },
+    // Get alert stats
+    const totalAlerts = await Alert.count();
+    const unacknowledgedAlerts = await Alert.count({ where: { acknowledged: false } });
+    const recentAlerts = await Alert.findAll({
+      include: [{ model: Sensor, attributes: ["id", "name", "location_name"] }],
       order: [["createdAt", "DESC"]],
       limit: 10,
     });
@@ -61,8 +49,8 @@ exports.getDashboardStats = async (req, res) => {
       include: [
         {
           model: Sensor,
-          where: { user_id: userId },
           attributes: [],
+          required: true,
         },
       ],
       raw: true,
@@ -86,8 +74,10 @@ exports.getDashboardStats = async (req, res) => {
         maxTemperature: tempStats.maxTemp
           ? parseFloat(tempStats.maxTemp).toFixed(1)
           : null,
+        alertsCount: totalAlerts,
+        unacknowledgedAlerts,
       },
-      recentAlerts: alerts,
+      recentAlerts,
     });
   } catch (error) {
     console.error(error);
@@ -98,7 +88,6 @@ exports.getDashboardStats = async (req, res) => {
 exports.getTemperatureTrends = async (req, res) => {
   try {
     const { period = "week", sensor_id } = req.query;
-    const userId = req.user.id;
 
     let dateFormat;
     let groupFormat;
@@ -152,7 +141,6 @@ exports.getTemperatureTrends = async (req, res) => {
       include: [
         {
           model: Sensor,
-          where: { user_id: userId },
           attributes: [],
           required: true
         },

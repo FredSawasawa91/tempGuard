@@ -7,7 +7,8 @@ const Sensor = require("./models/Sensor");
 const User = require("./models/User");
 const Report = require("./models/Report");
 const MaintenanceTask = require("./models/maintenance");
-const { startMaintenanceAlertJob } = require('./jobs/maintenanceAlertJob');
+const Alert = require("./models/Alert");
+//const { startMaintenanceAlertJob } = require('./jobs/maintenanceAlertJob');
 require("dotenv").config();
 
 const app = express();
@@ -34,6 +35,9 @@ MaintenanceTask.belongsTo(Sensor, { foreignKey: "sensor_id" });
 
 User.hasMany(Report, { foreignKey: "user_id", onDelete: "CASCADE" });
 Report.belongsTo(User, { foreignKey: "user_id" });
+
+Sensor.hasMany(Alert, { foreignKey: "sensor_id", onDelete: "CASCADE" });
+Alert.belongsTo(Sensor, { foreignKey: "sensor_id" });
 
 
 app.use("/api", apiRoutes);
@@ -77,6 +81,13 @@ app.post("/api/readings", async (req, res) => {
       longitude: longitude || sensorExists.longitude,
     });
 
+    // Trigger alert if temperature is out of range
+    if (temperature > sensorExists.max_temp) {
+      await Alert.create({ sensor_id, type: "HIGH_TEMP", message: "Temp High, " + temperature + "\u00B0C", temperature, threshold: sensorExists.max_temp });
+    } else if (temperature < sensorExists.min_temp) {
+      await Alert.create({ sensor_id, type: "LOW_TEMP", message: "Temp Low, " + temperature + "\u00B0C", temperature, threshold: sensorExists.min_temp });
+    }
+
     return res.status(201).json({
       success: true,
       message: "Telemetry log saved successfully",
@@ -93,7 +104,7 @@ app.post("/api/readings", async (req, res) => {
 // Sync Database Schema and Boot Server
 // For SQLite, use these options
 sequelize
-  .sync({ force: false, alter: false }) // Use alter: false to avoid issues
+  .sync({ force: false, alter: false })
   .then(async () => {
     console.log("Database synced successfully");
     
@@ -112,7 +123,7 @@ sequelize
     }
     
     // Start the maintenance alert job
-    startMaintenanceAlertJob();
+    //startMaintenanceAlertJob();
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch((err) => {

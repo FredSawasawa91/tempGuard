@@ -6,7 +6,6 @@ const sequelize = require("../config/database");
 exports.getAllSensors = async (req, res) => {
   try {
     const sensors = await Sensor.findAll({
-      where: { user_id: req.user.id },
       attributes: [
         "id",
         "name",
@@ -28,9 +27,7 @@ exports.getAllSensors = async (req, res) => {
 
 exports.getSensorById = async (req, res) => {
   try {
-    const sensor = await Sensor.findOne({
-      where: { id: req.params.id, user_id: req.user.id },
-    });
+    const sensor = await Sensor.findByPk(req.params.id);
     if (!sensor) {
       return res
         .status(404)
@@ -176,13 +173,14 @@ exports.getSensorsMap = async (req, res) => {
   try {
     const sensors = await Sensor.findAll({
       where: {
-        user_id: req.user.id,
         latitude: { [Op.ne]: null },
         longitude: { [Op.ne]: null },
       },
       attributes: [
         "id",
         "name",
+        "min_temp",
+        "max_temp",
         "latitude",
         "longitude",
         "status",

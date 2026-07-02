@@ -75,7 +75,6 @@ exports.getAllMaintenanceTasks = async (req, res) => {
       include: [
         {
           model: Sensor,
-          where: { user_id: req.user.id },
           attributes: ["name", "status", "location_name"],
           required: true,
         },
@@ -135,7 +134,6 @@ exports.getCompletedTasks = async (req, res) => {
     const tasks = await MaintenanceTask.findAll({
       include: [{
         model: Sensor,
-        where: { user_id: req.user.id },
         attributes: ["name", "location_name"],
         required: true,
       }],
@@ -148,7 +146,6 @@ exports.getCompletedTasks = async (req, res) => {
     const total = await MaintenanceTask.count({
       include: [{
         model: Sensor,
-        where: { user_id: req.user.id },
         required: true,
       }],
       where: whereClause,
@@ -173,12 +170,7 @@ exports.getCompletedTasks = async (req, res) => {
 exports.getMaintenanceTaskById = async (req, res) => {
   try {
     const task = await MaintenanceTask.findByPk(req.params.id, {
-      include: [
-        {
-          model: Sensor,
-          where: { user_id: req.user.id },
-        },
-      ],
+      include: [Sensor],
     });
 
     if (!task) {
@@ -330,18 +322,12 @@ exports.deleteMaintenanceTask = async (req, res) => {
 exports.getMaintenanceSummary = async (req, res) => {
   try {
     const tasks = await MaintenanceTask.findAll({
-      include: [
-        {
-          model: Sensor,
-          where: { user_id: req.user.id },
-        },
-      ],
+      include: [Sensor],
     });
 
     const completedLast30Days = await MaintenanceTask.count({
       include: [{
         model: Sensor,
-        where: { user_id: req.user.id },
         required: true,
       }],
       where: {
@@ -388,7 +374,6 @@ exports.getTaskHistory = async (req, res) => {
     const tasks = await MaintenanceTask.findAll({
       include: [{
         model: Sensor,
-        where: { user_id: req.user.id },
         attributes: ["name"],
         required: true,
       }],

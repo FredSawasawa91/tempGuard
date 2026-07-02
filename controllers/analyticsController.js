@@ -7,7 +7,7 @@ exports.getAnalyticsSummary = async (req, res) => {
   try {
     const { sensor_id, startDate, endDate } = req.query;
     
-    const sensorWhereClause = { user_id: req.user.id };
+    const sensorWhereClause = {};
     if (sensor_id && sensor_id !== "ALL") {
       sensorWhereClause.id = sensor_id;
     }
@@ -25,7 +25,6 @@ exports.getAnalyticsSummary = async (req, res) => {
         [sequelize.fn("MIN", sequelize.col("temperature")), "minTemp"],
         [sequelize.fn("MAX", sequelize.col("temperature")), "maxTemp"],
         [sequelize.fn("COUNT", sequelize.col("Reading.id")), "totalReadings"],
-        // SQLite uses the correct STDDEV function
         [sequelize.fn("ROUND", sequelize.fn("AVG", sequelize.col("temperature")), 2), "roundedAvg"],
       ],
       include: [{
@@ -100,7 +99,7 @@ exports.getHourlyAnalytics = async (req, res) => {
     const nextDay = new Date(targetDate);
     nextDay.setDate(nextDay.getDate() + 1);
 
-    const sensorWhereClause = { user_id: req.user.id };
+    const sensorWhereClause = {};
     if (sensor_id && sensor_id !== "ALL") {
       sensorWhereClause.id = sensor_id;
     }
@@ -140,7 +139,7 @@ exports.getHourlyAnalytics = async (req, res) => {
 exports.getSensorComparison = async (req, res) => {
   try {
     const sensors = await Sensor.findAll({
-      where: { user_id: req.user.id, status: "active" },
+      where: { status: "active" },
       attributes: ["id", "name"],
     });
 

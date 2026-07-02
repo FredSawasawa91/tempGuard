@@ -52,7 +52,6 @@ exports.generateReport = async (req, res) => {
         include: [
           {
             model: Sensor,
-            where: { user_id: req.user.id },
             attributes: ["name", "location_name"],
             required: true,
           },
@@ -74,7 +73,6 @@ exports.generateReport = async (req, res) => {
         include: [
           {
             model: Sensor,
-            where: { user_id: req.user.id },
             attributes: [],
             required: true,
           },
@@ -108,7 +106,6 @@ exports.generateReport = async (req, res) => {
         include: [
           {
             model: Sensor,
-            where: { user_id: req.user.id },
             attributes: ["name"],
             required: true,
           },
@@ -134,7 +131,6 @@ exports.generateReport = async (req, res) => {
 
     // Get sensor summary
     const sensors = await Sensor.findAll({
-      where: { user_id: req.user.id },
       attributes: [
         "id",
         "name",
@@ -202,7 +198,6 @@ exports.generateReport = async (req, res) => {
 exports.getReports = async (req, res) => {
   try {
     const reports = await Report.findAll({
-      where: { user_id: req.user.id },
       order: [["createdAt", "DESC"]],
       attributes: [
         "id",
@@ -230,9 +225,7 @@ exports.getReports = async (req, res) => {
 
 exports.getReportById = async (req, res) => {
   try {
-    const report = await Report.findOne({
-      where: { id: req.params.id, user_id: req.user.id },
-    });
+    const report = await Report.findByPk(req.params.id);
 
     if (!report) {
       return res.status(404).json({ error: "Report not found" });
@@ -247,9 +240,7 @@ exports.getReportById = async (req, res) => {
 
 exports.downloadReportFile = async (req, res) => {
   try {
-    const report = await Report.findOne({
-      where: { id: req.params.id, user_id: req.user.id },
-    });
+    const report = await Report.findByPk(req.params.id);
 
     if (!report) {
       return res.status(404).json({ error: "Report not found" });
