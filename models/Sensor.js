@@ -37,6 +37,19 @@ const Sensor = sequelize.define(
       type: DataTypes.FLOAT,
       allowNull: true,
     },
+    has_gas_sensor: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    last_gas_detected: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    last_gas_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     timestamps: true,

@@ -1,6 +1,7 @@
 const Report = require("../models/Report");
 const Reading = require("../models/Reading");
 const Sensor = require("../models/Sensor");
+const Alert = require("../models/Alert");
 const MaintenanceTask = require("../models/maintenance");
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
@@ -96,6 +97,7 @@ exports.generateReport = async (req, res) => {
         maxTemp: tempStats?.maxTemp
           ? parseFloat(tempStats.maxTemp).toFixed(2)
           : null,
+        gasEvents: readings.filter((r) => r.gas_detected).length,
         data: readings,
       };
     }
@@ -138,6 +140,9 @@ exports.generateReport = async (req, res) => {
         "location_name",
         "min_temp",
         "max_temp",
+        "has_gas_sensor",
+        "last_reading_value",
+        "last_reading_at",
       ],
     });
 
@@ -147,6 +152,23 @@ exports.generateReport = async (req, res) => {
       inactive: sensors.filter((s) => s.status === "inactive").length,
       maintenance: sensors.filter((s) => s.status === "maintenance").length,
       data: sensors,
+    };
+
+    // Alert summary for the period (all types)
+    const periodAlerts = await Alert.findAll({
+      attributes: ["type"],
+      where: {
+        createdAt: {
+          [Op.between]: [new Date(startDate), new Date(endDate)],
+        },
+      },
+      raw: true,
+    }).catch(() => []);
+    reportData.alerts = {
+      total: periodAlerts.length,
+      highTemp: periodAlerts.filter((a) => a.type === "HIGH_TEMP").length,
+      lowTemp: periodAlerts.filter((a) => a.type === "LOW_TEMP").length,
+      gas: periodAlerts.filter((a) => a.type === "GAS_DETECTED").length,
     };
 
     // Generate file URL if format is PDF or CSV

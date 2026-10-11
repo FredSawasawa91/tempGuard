@@ -1,6 +1,14 @@
 const express = require("express");
 const router = express.Router();
 const authenticateToken = require("../middleware/auth");
+const requireAdmin = require("../middleware/requireAdmin");
+const rateLimit = require("../middleware/rateLimit");
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: "Too many login attempts, please try again in 15 minutes",
+});
 
 // Controllers
 const authController = require("../controllers/authController");
@@ -13,8 +21,9 @@ const reportController = require("../controllers/reportController");
 const alertController = require("../controllers/alertController");
 
 // ==================== AUTH ROUTES ====================
-router.post("/auth/register", authController.register);
-router.post("/auth/login", authController.login);
+// NOTE: self-registration is disabled. Only admins may create users via
+// POST /admin/users. The bootstrap admin is seeded on first boot.
+router.post("/auth/login", loginLimiter, authController.login);
 router.post("/auth/logout", authController.logout);
 router.get("/auth/profile", authenticateToken, authController.getProfile);
 
@@ -63,12 +72,12 @@ router.get("/analytics/comparison", authenticateToken, analyticsController.getSe
 
 // ==================== USER MANAGEMENT ROUTES ====================
 
-// Admin routes
-router.get("/admin/users", authenticateToken, userController.getAllUsers);
-router.get("/admin/users/stats", authenticateToken, userController.getUserStats);
-router.post("/admin/users", authenticateToken, userController.createUser);
-router.put("/admin/users/:id", authenticateToken, userController.updateUser);
-router.delete("/admin/users/:id", authenticateToken, userController.deleteUser);
+// Admin routes (administrators only - enforced by requireAdmin)
+router.get("/admin/users", authenticateToken, requireAdmin, userController.getAllUsers);
+router.get("/admin/users/stats", authenticateToken, requireAdmin, userController.getUserStats);
+router.post("/admin/users", authenticateToken, requireAdmin, userController.createUser);
+router.put("/admin/users/:id", authenticateToken, requireAdmin, userController.updateUser);
+router.delete("/admin/users/:id", authenticateToken, requireAdmin, userController.deleteUser);
 
 // User profile routes
 router.get("/users/profile", authenticateToken, userController.getCurrentUser);

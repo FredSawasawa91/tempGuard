@@ -17,6 +17,9 @@ exports.getAllSensors = async (req, res) => {
         "location_name",
         "last_reading_value",
         "last_reading_at",
+        "has_gas_sensor",
+        "last_gas_detected",
+        "last_gas_at",
       ],
     });
     res.json({ success: true, sensors });
@@ -51,8 +54,18 @@ exports.createSensor = async (req, res) => {
       longitude,
       location_name,
       description,
+      has_gas_sensor,
+      sensor_type,
     } = req.body;
     const userId = req.user.id;
+
+    // Dropdown: "Temperature" | "Temperature + Gas" (also accepts boolean)
+    const gasCapable =
+      has_gas_sensor === true ||
+      has_gas_sensor === 1 ||
+      has_gas_sensor === "1" ||
+      (typeof sensor_type === "string" &&
+        sensor_type.toLowerCase().includes("gas"));
 
     if (!id) {
       return res
@@ -72,6 +85,7 @@ exports.createSensor = async (req, res) => {
         longitude,
         location_name,
         description,
+        has_gas_sensor: gasCapable,
       },
     });
 
@@ -107,7 +121,16 @@ exports.updateSensor = async (req, res) => {
         .json({ success: false, message: "Sensor not found" });
     }
 
-    await sensor.update(req.body);
+    // Normalize dropdown value ("Temperature" | "Temperature + Gas")
+    const updates = { ...req.body };
+    if (updates.sensor_type !== undefined) {
+      updates.has_gas_sensor =
+        typeof updates.sensor_type === "string" &&
+        updates.sensor_type.toLowerCase().includes("gas");
+      delete updates.sensor_type;
+    }
+
+    await sensor.update(updates);
     res.json({ success: true, message: "Sensor updated successfully", sensor });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -147,11 +170,33 @@ exports.getSensorStats = async (req, res) => {
       raw: true,
     });
 
-    // Get recent readings
     const recentReadings = await Reading.findAll({
       where: { sensor_id: sensorId },
       order: [["createdAt", "DESC"]],
       limit: 10,
+    });
+
+    // Gas stats (NULL = temp-only readings, excluded from gas counts)
+    const gasStats = await Reading.findOne({
+      attributes: [
+        [sequelize.fn("COUNT", sequelize.col("id")), "gasReadings"],
+        [
+          sequelize.fn(
+            "SUM",
+            sequelize.literal(
+              'CASE WHEN "gas_detected" = 1 THEN 1 ELSE 0 END'
+            )
+          ),
+          "gasEvents",
+        ],
+      ],
+      where: { sensor_id: sensorId, gas_detected: { [Op.ne]: null } },
+      raw: true,
+    });
+    const latestGas = await Reading.findOne({
+      where: { sensor_id: sensorId, gas_detected: { [Op.ne]: null } },
+      order: [["createdAt", "DESC"]],
+      attributes: ["gas_detected", "createdAt"],
     });
 
     res.json({
@@ -161,6 +206,14 @@ exports.getSensorStats = async (req, res) => {
         minTemp: stats.minTemp ? parseFloat(stats.minTemp).toFixed(1) : null,
         maxTemp: stats.maxTemp ? parseFloat(stats.maxTemp).toFixed(1) : null,
         totalReadings: stats.totalReadings || 0,
+        gasReadings: gasStats ? parseInt(gasStats.gasReadings) || 0 : 0,
+        gasEvents: gasStats ? parseInt(gasStats.gasEvents) || 0 : 0,
+        latestGas: latestGas
+          ? latestGas.gas_detected
+            ? 1
+            : 0
+          : null,
+        latestGasTime: latestGas ? latestGas.createdAt : null,
       },
       recentReadings,
     });
@@ -185,11 +238,14 @@ exports.getSensorsMap = async (req, res) => {
         "longitude",
         "status",
         "location_name",
+        "has_gas_sensor",
+        "last_gas_detected",
+        "last_gas_at",
       ],
       include: [
         {
           model: Reading,
-          attributes: ["temperature", "createdAt"],
+          attributes: ["temperature", "gas_detected", "createdAt"],
           order: [["createdAt", "DESC"]],
           limit: 1,
           required: false, // LEFT JOIN — include sensors with no readings
@@ -201,6 +257,7 @@ exports.getSensorsMap = async (req, res) => {
     const result = sensors.map(sensor => ({
       ...sensor.toJSON(),
       last_reading_value: sensor.Readings?.[0]?.temperature ?? null,
+      last_gas_detected: sensor.Readings?.[0]?.gas_detected ?? sensor.toJSON().last_gas_detected ?? null,
     }));
 
     res.json({ success: true, sensors: result });

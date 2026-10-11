@@ -33,9 +33,10 @@ exports.getAlertStats = async (req, res) => {
     const total = await Alert.count();
     const highTemp = await Alert.count({ where: { type: "HIGH_TEMP" } });
     const lowTemp = await Alert.count({ where: { type: "LOW_TEMP" } });
+    const gasDetected = await Alert.count({ where: { type: "GAS_DETECTED" } }).catch(() => 0);
     const unacknowledged = await Alert.count({ where: { acknowledged: false } });
 
-    res.json({ success: true, stats: { total, highTemp, lowTemp, unacknowledged } });
+    res.json({ success: true, stats: { total, highTemp, lowTemp, gasDetected, unacknowledged } });
   } catch (error) {
     console.error("Alert stats error:", error);
     res.status(500).json({ error: error.message });

@@ -1,87 +1,16 @@
 const User = require("../models/User");
-const { Op } = require("sequelize");
-const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
-exports.register = async (req, res) => {
-  try {
-    const { username, email, password, fullName, phoneNumber } = req.body;
-    
-    // Validation
-    if (!username || !email || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Username, email, and password are required" 
-      });
-    }
-
-    // Email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Please enter a valid email address" 
-      });
-    }
-
-    // Password length validation
-    if (password.length < 6) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Password must be at least 6 characters long" 
-      });
-    }
-
-    // Check if user already exists
-    const existingUser = await User.findOne({
-      where: {
-        [Op.or]: [{ username }, { email }]
-      }
-    });
-
-    if (existingUser) {
-      const field = existingUser.username === username ? "Username" : "Email";
-      return res.status(400).json({ 
-        success: false, 
-        message: `${field} already taken` 
-      });
-    }
-
-    // Create new user
-    const newUser = await User.create({
-      username,
-      email,
-      password,
-      fullName: fullName || null,
-      phoneNumber: phoneNumber || null,
-      role: "admin",
-      status: "active",
-    });
-
-    // Remove password from response
-    const userResponse = newUser.toJSON();
-    delete userResponse.password;
-
-    return res.status(201).json({
-      success: true,
-      message: "User registered successfully",
-      user: userResponse,
-    });
-  } catch (error) {
-    console.error("Registration error:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Internal Server Error" 
-    });
-  }
-};
-
+// NOTE: self-registration is intentionally disabled. User accounts may only
+// be created by an administrator via POST /admin/users. The initial admin
+// account is seeded on first boot (see server.js).
 exports.login = async (req, res) => {
   try {
     const { username, password } = req.body;
     const user = await User.findOne({ where: { username } });
 
     if (!user || !(await user.validPassword(password))) {
+      console.warn(`Failed login attempt for username '${username}'`);
       return res
         .status(401)
         .json({ success: false, message: "Invalid username or password" });

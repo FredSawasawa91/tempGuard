@@ -1,10 +1,19 @@
 const User = require("../models/User");
 const { Op } = require("sequelize");
-const bcrypt = require("bcrypt");
+
+// Admin-only guard (defense in depth - routes already enforce requireAdmin)
+const denyUnlessAdmin = (req, res) => {
+  if (!req.user || req.user.role !== "admin") {
+    res.status(403).json({ error: "Access denied: administrators only" });
+    return false;
+  }
+  return true;
+};
 
 // Get all users (Admin only)
 exports.getAllUsers = async (req, res) => {
   try {
+    if (!denyUnlessAdmin(req, res)) return;
     const users = await User.findAll({
       attributes: { exclude: ["password"] },
       order: [["createdAt", "DESC"]],
@@ -17,18 +26,15 @@ exports.getAllUsers = async (req, res) => {
 };
 
 exports.getCurrentUser = async (req, res) => {
-  console.log('getCurrentUser called, user:', req.user);
   try {
     const user = await User.findByPk(req.user.id, {
       attributes: { exclude: ['password'] }
     });
-    
-    console.log('Found user:', user);
-    
+
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
-    
+
     res.json({ success: true, user });
   } catch (error) {
     console.error("Get current user error:", error);
@@ -59,15 +65,31 @@ exports.getUserById = async (req, res) => {
   }
 };
 
-// Create new user (Admin only)
+// Create new user (Admin only - sole user-creation path; no self-registration)
 exports.createUser = async (req, res) => {
   try {
+    if (!denyUnlessAdmin(req, res)) return;
     const { username, email, password, fullName, role, phoneNumber } = req.body;
 
     if (!username || !email || !password) {
       return res
         .status(400)
         .json({ error: "Username, email, and password are required" });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Please enter a valid email address" });
+    }
+
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters long" });
+    }
+
+    if (role && !["user", "admin"].includes(role)) {
+      return res.status(400).json({ error: "Invalid role" });
     }
 
     // Check if user exists
@@ -103,63 +125,73 @@ exports.createUser = async (req, res) => {
   }
 };
 
-// Update user
+// Update user (Admin only - route-gated; owner check retained for safety)
 exports.updateUser = async (req, res) => {
   try {
+    if (!denyUnlessAdmin(req, res)) return;
     const user = await User.findByPk(req.params.id);
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Check permissions
-    if (req.user.role !== "admin" && req.user.id !== parseInt(req.params.id)) {
-      return res.status(403).json({ error: "Access denied" });
-    }
+    // Strict allowlist - never mass-assign req.body (blocks id/role
+    // smuggling and unknown fields)
+    const allowedUpdates = [
+      "username",
+      "email",
+      "fullName",
+      "phoneNumber",
+      "avatar",
+      "role",
+      "status",
+      "password",
+    ];
+    const updates = {};
+    allowedUpdates.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    });
 
-    // Non-admins cannot change role
-    if (req.user.role !== "admin" && req.body.role) {
-      delete req.body.role;
+    if (updates.role && !["user", "admin"].includes(updates.role)) {
+      return res.status(400).json({ error: "Invalid role" });
+    }
+    if (updates.status && !["active", "inactive"].includes(updates.status)) {
+      return res.status(400).json({ error: "Invalid status" });
     }
 
     // Check if email/username already taken (for other users)
-    if (req.body.email || req.body.username) {
-      const existingUser = await User.findOne({
+    if (updates.email) {
+      const emailExists = await User.findOne({
+        where: { email: updates.email, id: { [Op.ne]: req.params.id } },
+      });
+      if (emailExists) {
+        return res.status(400).json({ error: "Email already in use" });
+      }
+    }
+
+    if (updates.username) {
+      const usernameExists = await User.findOne({
         where: {
-          [Op.or]: [],
+          username: updates.username,
           id: { [Op.ne]: req.params.id },
         },
       });
-
-      if (req.body.email) {
-        const emailExists = await User.findOne({
-          where: { email: req.body.email, id: { [Op.ne]: req.params.id } },
-        });
-        if (emailExists) {
-          return res.status(400).json({ error: "Email already in use" });
-        }
-      }
-
-      if (req.body.username) {
-        const usernameExists = await User.findOne({
-          where: {
-            username: req.body.username,
-            id: { [Op.ne]: req.params.id },
-          },
-        });
-        if (usernameExists) {
-          return res.status(400).json({ error: "Username already in use" });
-        }
+      if (usernameExists) {
+        return res.status(400).json({ error: "Username already in use" });
       }
     }
 
-    // Handle password update
-    if (req.body.password) {
-      const salt = await bcrypt.genSalt(10);
-      req.body.password = await bcrypt.hash(req.body.password, salt);
+    // Password is hashed by the model's beforeUpdate hook - never hash here
+    // (double hashing would lock the user out)
+    if (updates.password && updates.password.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters long" });
     }
 
-    await user.update(req.body);
+    await user.update(updates);
 
     const userResponse = user.toJSON();
     delete userResponse.password;
@@ -174,6 +206,7 @@ exports.updateUser = async (req, res) => {
 // Delete user (Admin only)
 exports.deleteUser = async (req, res) => {
   try {
+    if (!denyUnlessAdmin(req, res)) return;
     const user = await User.findByPk(req.params.id);
 
     if (!user) {
@@ -183,6 +216,14 @@ exports.deleteUser = async (req, res) => {
     // Prevent admin from deleting themselves
     if (user.id === req.user.id) {
       return res.status(400).json({ error: "Cannot delete your own account" });
+    }
+
+    // Prevent deleting the last remaining admin (would lock out administration)
+    if (user.role === "admin") {
+      const adminCount = await User.count({ where: { role: "admin" } });
+      if (adminCount <= 1) {
+        return res.status(400).json({ error: "Cannot delete the last admin account" });
+      }
     }
 
     await user.destroy();
@@ -264,9 +305,15 @@ exports.changePassword = async (req, res) => {
       return res.status(401).json({ error: "Current password is incorrect" });
     }
 
-    // Update password
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
+    if (!newPassword || newPassword.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters long" });
+    }
+
+    // Assigned plain - the model's beforeUpdate hook hashes it.
+    // Never hash here (double hashing would lock the user out).
+    user.password = newPassword;
     await user.save();
 
     res.json({ success: true, message: "Password changed successfully" });
@@ -279,6 +326,7 @@ exports.changePassword = async (req, res) => {
 // Get user statistics (Admin only)
 exports.getUserStats = async (req, res) => {
   try {
+    if (!denyUnlessAdmin(req, res)) return;
     const totalUsers = await User.count();
     const activeUsers = await User.count({ where: { status: "active" } });
     const adminUsers = await User.count({ where: { role: "admin" } });

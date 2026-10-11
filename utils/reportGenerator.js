@@ -9,18 +9,23 @@ if (!fs.existsSync(REPORTS_DIR)) {
   fs.mkdirSync(REPORTS_DIR, { recursive: true });
 }
 
-// Professional color scheme
+// Professional color scheme (TempGuard brand + slate neutrals)
 const COLORS = {
   primary: "#0D3B66",
+  primaryDark: "#082A4A",
   secondary: "#2A9D8F",
   accent: "#E76F51",
   warning: "#F4A261",
   text: "#2C3E50",
+  ink: "#1A2B3C",
   textLight: "#7F8C8D",
-  border: "#ECF0F1",
-  background: "#F8F9FA",
+  border: "#DCE3EA",
+  background: "#F4F6F9",
+  card: "#FFFFFF",
   success: "#27AE60",
+  successBg: "#E8F5E9",
   danger: "#E74C3C",
+  dangerBg: "#FDECEA",
 };
 
 // Helper function to add header
@@ -37,7 +42,7 @@ function addHeader(doc, title) {
   doc
     .fontSize(10)
     .font("Helvetica")
-    .text("Temperature Monitoring System Report", 50, 55, { align: "center" });
+    .text("TempGuard Monitoring System Report", 50, 55, { align: "center" });
 
   doc.fillColor(COLORS.text);
 }
@@ -104,6 +109,126 @@ function addStatusBadge(doc, x, y, text, color) {
     .fontSize(9)
     .font("Helvetica-Bold")
     .text(text, x + width / 2, y + 5, { align: "center" });
+}
+
+// Slim inner-page header: navy bar with section title + brand (replaces
+// the oversized full header on content pages; cover keeps addHeader)
+function addSlimHeader(doc, title) {
+  const w = doc.page.width;
+  doc.rect(0, 0, w, 46).fill(COLORS.primary);
+  doc
+    .fillColor("#FFFFFF")
+    .fontSize(14)
+    .font("Helvetica-Bold")
+    .text(title, 50, 16);
+  doc
+    .fontSize(9)
+    .font("Helvetica")
+    .text("TempGuard", 50, 18, { align: "right", width: w - 100 });
+  doc.fillColor(COLORS.text);
+  doc.y = 64;
+}
+
+// Red/green verdict banner (text + color only; Helvetica-safe, no glyphs)
+function addVerdictBanner(doc, gasEvents) {
+  const alert = (gasEvents || 0) > 0;
+  const y = doc.y;
+  doc
+    .roundedRect(50, y, doc.page.width - 100, 58, 8)
+    .fill(alert ? COLORS.dangerBg : COLORS.successBg);
+  doc
+    .fillColor(alert ? COLORS.danger : COLORS.success)
+    .fontSize(13)
+    .font("Helvetica-Bold")
+    .text(
+      alert
+        ? `GAS SAFETY: ${gasEvents} EVENT(S) REQUIRE REVIEW`
+        : "GAS SAFETY: NO EVENTS IN THIS PERIOD",
+      66,
+      y + 11,
+    );
+  doc
+    .fillColor(COLORS.text)
+    .fontSize(9)
+    .font("Helvetica")
+    .text(
+      alert
+        ? "Gas was detected during this period. Review the event log below and verify ventilation in the affected areas."
+        : "No gas detections were recorded by gas-capable sensors during this period.",
+      66,
+      y + 31,
+      { width: doc.page.width - 132 },
+    );
+  doc.y = y + 70;
+}
+
+// Bulleted findings list
+function addBullets(doc, items) {
+  items.forEach((t) => {
+    const y = doc.y;
+    doc.fillColor(COLORS.secondary).circle(56, y + 5, 2.5).fill();
+    doc
+      .fillColor(COLORS.text)
+      .fontSize(10)
+      .font("Helvetica")
+      .text(t, 68, y, { width: doc.page.width - 118 });
+    doc.moveDown(0.7);
+  });
+}
+
+// Contents entries (drawn at the end on the reserved page via switchToPage)
+function drawTocEntries(doc, toc) {
+  doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+  doc
+    .fillColor("#FFFFFF")
+    .fontSize(14)
+    .font("Helvetica-Bold")
+    .text("Contents", 50, 16);
+  doc.fillColor(COLORS.text);
+  let y = 82;
+  toc.forEach((s, i) => {
+    doc
+      .fillColor(COLORS.textLight)
+      .fontSize(10)
+      .font("Helvetica")
+      .text(String(i + 1).padStart(2, "0"), 50, y);
+    doc
+      .fillColor(COLORS.ink)
+      .fontSize(11)
+      .font("Helvetica")
+      .text(s.title, 82, y);
+    doc
+      .fillColor(COLORS.textLight)
+      .fontSize(10)
+      .text(String(s.page), 50, y, {
+        align: "right",
+        width: doc.page.width - 100,
+      });
+    doc
+      .strokeColor(COLORS.border)
+      .lineWidth(0.5)
+      .moveTo(50, y + 17)
+      .lineTo(doc.page.width - 50, y + 17)
+      .stroke();
+    y += 27;
+  });
+}
+
+// Page footers for every page except the cover (drawn at the very end)
+function drawFooters(doc, report) {
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    if (i === 0) continue;
+    doc.fontSize(8).fillColor("#888888");
+    const left = `TempGuard  |  Report #${report.id}`;
+    const right = `Page ${i + 1} of ${range.count}`;
+    doc.text(left, 50, doc.page.height - 35, { lineBreak: false });
+    const w = doc.widthOfString(right);
+    doc.text(right, doc.page.width - 50 - w, doc.page.height - 35, {
+      lineBreak: false,
+    });
+  }
 }
 
 // Helper function to add section title
@@ -192,6 +317,7 @@ async function generatePDFReport(report, reportData) {
         margin: 50,
         size: "A4",
         layout: "portrait",
+        bufferPages: true,
       });
       const stream = fs.createWriteStream(filePath);
       doc.pipe(stream);
@@ -210,145 +336,284 @@ async function generatePDFReport(report, reportData) {
       const safeAddSectionTitle = (doc, title, _icon) =>
         addSectionTitle(doc, safe(title));
 
-      // ==================== COVER PAGE ====================
-      safeAddHeader(doc, report.title);
+      // Section tracker for the Contents page (display numbers = pageNumber)
+      const toc = [];
+      const markSection = (title) => toc.push({ title, page: pageNumber });
 
-      const centerY = (doc.page.height - 200) / 2;
+      // Pre-computed safety figures (derived from reportData, no extra queries)
+      const gasEventsTotal = reportData.readings?.gasEvents || 0;
+      const allReadings = reportData.readings?.data || [];
+      const gasList = allReadings.filter((r) => r.gas_detected);
+      const gasCapable = (reportData.sensors?.data || []).filter(
+        (s) => s.has_gas_sensor,
+      );
+      const lastGasAt = gasList.length
+        ? new Date(
+            Math.max(
+              ...gasList.map((r) => new Date(r.createdAt).getTime()),
+            ),
+          )
+        : null;
+      const gasStreakDays = lastGasAt
+        ? Math.floor((Date.now() - lastGasAt.getTime()) / 86400000)
+        : null;
+      const periodStr = `${new Date(report.date_range_start).toLocaleDateString()} - ${new Date(report.date_range_end).toLocaleDateString()}`;
+
+      // ==================== COVER PAGE (page 1) ====================
+      doc.rect(0, 0, doc.page.width, 148).fill(COLORS.primary);
+      doc.rect(0, 148, doc.page.width, 4).fill(COLORS.secondary);
+      doc
+        .fillColor("#FFFFFF")
+        .fontSize(15)
+        .font("Helvetica-Bold")
+        .text("TempGuard", 50, 30);
+      doc
+        .fontSize(9)
+        .font("Helvetica")
+        .text("Safety & Temperature Monitoring", 50, 50);
+      doc
+        .fontSize(9)
+        .font("Helvetica-Bold")
+        .text(safe(report.type || "custom").toUpperCase() + " REPORT", 50, 30, {
+          align: "right",
+          width: doc.page.width - 100,
+        });
 
       doc
-        .fillColor(COLORS.secondary)
-        .fontSize(48)
+        .fillColor(COLORS.ink)
+        .fontSize(26)
         .font("Helvetica-Bold")
-        .text("TEMPERATURE", 50, centerY - 40, { align: "center" })
-        .text("MONITORING REPORT", 50, centerY + 10, { align: "center" });
+        .text(safe(report.title), 50, 190, { width: doc.page.width - 100 });
+      doc
+        .fillColor(COLORS.textLight)
+        .fontSize(11)
+        .font("Helvetica")
+        .text(`Reporting period: ${periodStr}`, 50, doc.y + 6);
+
+      // Meta card: two columns
+      const metaY = doc.y + 30;
+      doc
+        .roundedRect(50, metaY, doc.page.width - 100, 96, 8)
+        .fill(COLORS.background);
+      doc.fillColor(COLORS.text).fontSize(10).font("Helvetica");
+      const meta = [
+        [`Report ID: #${report.id}`, `Type: ${safe(report.type || "custom")}`],
+        [`Generated: ${new Date().toLocaleString()}`, `Sensors: ${reportData.sensors?.total || 0} (${gasCapable.length} gas-capable)`],
+        [`Period: ${periodStr}`, `Readings: ${reportData.readings?.total || 0}  |  Gas events: ${gasEventsTotal}`],
+      ];
+      meta.forEach((row, ri) => {
+        doc.text(row[0], 66, metaY + 16 + ri * 26);
+        doc.text(row[1], doc.page.width / 2 + 10, metaY + 16 + ri * 26);
+      });
+      doc.y = metaY + 112;
+
+      addVerdictBanner(doc, gasEventsTotal);
 
       doc
         .fillColor(COLORS.textLight)
-        .fontSize(12)
+        .fontSize(8)
         .font("Helvetica")
-        .text(report.title, 50, centerY + 80, { align: "center" });
+        .text("Confidential — prepared for internal safety review.", 50, doc.page.height - 60, {
+          align: "center",
+          width: doc.page.width - 100,
+        });
 
-      const metaY = centerY + 140;
-      doc.roundedRect(50, metaY, doc.page.width - 100, 100, 10).fill("#F8F9FA");
-
-      doc.fillColor(COLORS.text).fontSize(10);
-      let metaStartY = metaY + 20;
-      doc.text(`Report ID: ${report.id}`, 70, metaStartY);
-      doc.text(
-        `Report Type: ${report.type.toUpperCase()}`,
-        70,
-        metaStartY + 20,
-      );
-      doc.text(
-        `Generated: ${new Date().toLocaleString()}`,
-        70,
-        metaStartY + 40,
-      );
-      doc.text(
-        `Period: ${new Date(report.date_range_start).toLocaleDateString()} - ${new Date(report.date_range_end).toLocaleDateString()}`,
-        70,
-        metaStartY + 60,
-      );
-
-      addFooter(doc, pageNumber++);
+      pageNumber++;
       doc.addPage();
 
-      // ==================== EXECUTIVE SUMMARY PAGE ====================
-      safeAddHeader(doc, "Executive Summary");
+      // ==================== CONTENTS (page 2, filled in at the end) ====================
+      pageNumber++;
+      doc.addPage();
+
+      // ==================== EXECUTIVE SUMMARY ====================
+      markSection("Executive Summary");
+      doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+      doc
+        .fillColor("#FFFFFF")
+        .fontSize(14)
+        .font("Helvetica-Bold")
+        .text("Executive Summary", 50, 16);
+      doc
+        .fontSize(9)
+        .font("Helvetica")
+        .text("TempGuard", 50, 18, {
+          align: "right",
+          width: doc.page.width - 100,
+        });
+      doc.fillColor(COLORS.text);
+      doc.y = 64;
       safeAddSectionTitle(doc, "Key Performance Indicators");
 
       const cardWidth = (doc.page.width - 120) / 3;
-      const kpiY = doc.y; // ── FIX 2: capture y once so all three cards share the same row
-      addMetricCard(
-        doc,
-        50,
-        kpiY,
-        cardWidth,
-        "Total Sensors",
-        reportData.sensors?.total || 0,
-        COLORS.primary,
-        "",
-      );
-      addMetricCard(
-        doc,
-        70 + cardWidth,
-        kpiY,
-        cardWidth,
-        "Total Readings",
-        reportData.readings?.total || 0,
-        COLORS.secondary,
-        "",
-      );
-      addMetricCard(
-        doc,
-        90 + cardWidth * 2,
-        kpiY,
-        cardWidth,
-        "Active Alerts",
-        reportData.readings?.alertsCount || 0,
-        COLORS.accent,
-        "",
-      );
+      const kpiRow = (y, cards) => {
+        cards.forEach((c, i) => {
+          addMetricCard(
+            doc,
+            50 + i * cardWidth + (i > 0 ? i * 10 : 0),
+            y,
+            cardWidth - (i > 0 ? 0 : 0),
+            c.title,
+            c.value,
+            c.color,
+            c.icon,
+          );
+        });
+      };
+      const kpiY = doc.y;
+      kpiRow(kpiY, [
+        { title: "Total Sensors", value: reportData.sensors?.total || 0, color: COLORS.primary, icon: "S" },
+        { title: "Total Readings", value: reportData.readings?.total || 0, color: COLORS.secondary, icon: "R" },
+        { title: "Active Alerts", value: reportData.alerts?.total ?? reportData.readings?.alertsCount ?? 0, color: COLORS.accent, icon: "!" },
+      ]);
+      kpiRow(kpiY + 92, [
+        { title: "Avg Temp", value: `${reportData.readings?.averageTemp || 0}C`, color: COLORS.primary, icon: "T" },
+        { title: "Gas Events", value: gasEventsTotal, color: gasEventsTotal > 0 ? COLORS.danger : COLORS.success, icon: "G" },
+        { title: "Overdue Tasks", value: reportData.maintenance?.overdue || 0, color: COLORS.warning, icon: "W" },
+      ]);
+      doc.y = kpiY + 184;
 
-      doc.moveDown(4);
-
-      safeAddSectionTitle(doc, "System Status");
-
-      const statusY = doc.y;
-      const statusItems = [
-        {
-          label: "Active Sensors",
-          value: reportData.sensors?.active || 0,
-          color: COLORS.success,
-        },
-        {
-          label: "In Maintenance",
-          value: reportData.sensors?.maintenance || 0,
-          color: COLORS.warning,
-        },
-        {
-          label: "Overdue Tasks",
-          value: reportData.maintenance?.overdue || 0,
-          color: COLORS.danger,
-        },
-        {
-          label: "Completed Tasks",
-          value: reportData.maintenance?.completed || 0,
-          color: COLORS.success,
-        },
+      safeAddSectionTitle(doc, "Key Findings");
+      const findings = [
+        `${reportData.readings?.total || 0} temperature readings collected from ${reportData.sensors?.total || 0} sensors (${gasCapable.length} gas-capable) between ${periodStr}.`,
+        gasEventsTotal > 0
+          ? `${gasEventsTotal} gas detection event(s) recorded${lastGasAt ? `, most recently on ${lastGasAt.toLocaleString()}` : ""}. Immediate review recommended.`
+          : "No gas detections recorded in this period. Gas-capable sensors reported normally.",
+        `${reportData.alerts?.total ?? reportData.readings?.alertsCount ?? 0} alert(s) triggered in period${reportData.alerts ? ` (${reportData.alerts.highTemp} high-temp, ${reportData.alerts.lowTemp} low-temp, ${reportData.alerts.gas} gas)` : ""} (readings min ${reportData.readings?.minTemp || 0}C / max ${reportData.readings?.maxTemp || 0}C).`,
+        `${reportData.maintenance?.overdue || 0} maintenance task(s) overdue; ${reportData.maintenance?.completed || 0} completed in period.`,
       ];
+      addBullets(doc, findings);
 
-      statusItems.forEach((item, index) => {
-        const x = 50 + (index % 2) * 250;
-        const y = statusY + Math.floor(index / 2) * 40;
-        doc.fillColor(COLORS.text).fontSize(11).text(`${item.label}:`, x, y);
-        addStatusBadge(doc, x + 120, y - 2, item.value.toString(), item.color);
-      });
+      pageNumber++;
+      doc.addPage();
 
-      addFooter(doc, pageNumber++);
+      // ==================== GAS SAFETY ====================
+      markSection("Gas Safety");
+      doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+      doc
+        .fillColor("#FFFFFF")
+        .fontSize(14)
+        .font("Helvetica-Bold")
+        .text("Gas Safety", 50, 16);
+      doc
+        .fontSize(9)
+        .font("Helvetica")
+        .text("TempGuard", 50, 18, {
+          align: "right",
+          width: doc.page.width - 100,
+        });
+      doc.fillColor(COLORS.text);
+      doc.y = 64;
+      addVerdictBanner(doc, gasEventsTotal);
+
+      if (gasCapable.length === 0) {
+        doc
+          .fillColor(COLORS.text)
+          .fontSize(10)
+          .font("Helvetica")
+          .text(
+            "No gas-capable sensors are registered. Gas monitoring can be enabled by setting a sensor's Type to \"Temperature + Gas\".",
+            50,
+            doc.y,
+            { width: doc.page.width - 100 },
+          );
+      } else {
+        safeAddSectionTitle(doc, "Gas-Capable Sensors");
+        const gasSumHeaders = ["Sensor", "Location", "Readings", "Gas Events", "Last Event"];
+        const gasSumWidths = [90, 130, 60, 65, 100];
+        let gasY = addTableHeader(doc, gasSumHeaders, 50, doc.y, gasSumWidths);
+        gasCapable.slice(0, 20).forEach((sensor, index) => {
+          const sReadings = allReadings.filter((r) => String(r.sensor_id) === String(sensor.id));
+          const sGas = sReadings.filter((r) => r.gas_detected);
+          const sLast = sGas.length
+            ? new Date(Math.max(...sGas.map((r) => new Date(r.createdAt).getTime()))).toLocaleString()
+            : "Never";
+          gasY = addTableRow(
+            doc,
+            [sensor.name || sensor.id, sensor.location_name || "N/A", String(sReadings.length), String(sGas.length), sLast],
+            50,
+            gasY,
+            gasSumWidths,
+            index % 2 === 1,
+          );
+        });
+        doc.y = gasY + 10;
+
+        safeAddSectionTitle(doc, "Gas Event Log");
+        if (!gasList.length) {
+          doc
+            .fillColor(COLORS.text)
+            .fontSize(10)
+            .font("Helvetica")
+            .text("No gas events in this period.", 50, doc.y);
+        } else {
+          const logHeaders = ["Date/Time", "Sensor", "Location", "Status"];
+          const logWidths = [120, 100, 150, 75];
+          let logY = addTableHeader(doc, logHeaders, 50, doc.y, logWidths);
+          gasList.slice(0, 50).forEach((reading, index) => {
+            if (logY > 700) {
+              pageNumber++;
+              doc.addPage();
+              doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+              doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Gas Safety (Continued)", 50, 16);
+              doc.fillColor(COLORS.text);
+              doc.y = 64;
+              logY = addTableHeader(doc, logHeaders, 50, doc.y, logWidths);
+            }
+            logY = addTableRow(
+              doc,
+              [
+                new Date(reading.createdAt).toLocaleString(),
+                reading.Sensor?.name || reading.sensor_id || "Unknown",
+                reading.Sensor?.location_name || "N/A",
+                "GAS DETECTED",
+              ],
+              50,
+              logY,
+              logWidths,
+              index % 2 === 1,
+            );
+          });
+          if (gasList.length > 50) {
+            doc
+              .fillColor(COLORS.textLight)
+              .fontSize(9)
+              .text(`* Showing first 50 of ${gasList.length} gas events`, 50, doc.y);
+          }
+        }
+      }
+
+      pageNumber++;
       doc.addPage();
 
       // ==================== SENSORS OVERVIEW PAGE ====================
-      safeAddHeader(doc, "Sensors Overview");
+      markSection("Sensors Overview");
+      doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+      doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Sensors Overview", 50, 16);
+      doc.fillColor(COLORS.text);
+      doc.y = 64;
       safeAddSectionTitle(doc, "Sensor Distribution");
 
       const sensorHeaders = [
         "Sensor ID",
         "Name",
+        "Type",
         "Status",
         "Location",
         "Last Reading",
       ];
-      const sensorWidths = [70, 100, 60, 100, 70];
+      const sensorWidths = [60, 90, 70, 55, 90, 60];
       let currentY = doc.y;
 
       currentY = addTableHeader(doc, sensorHeaders, 50, currentY, sensorWidths);
 
       (reportData.sensors?.data || []).slice(0, 20).forEach((sensor, index) => {
         if (currentY > 700) {
-          addFooter(doc, pageNumber++);
+          pageNumber++;
           doc.addPage();
-          safeAddHeader(doc, "Sensors Overview (Continued)");
+          doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+          doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Sensors Overview (Continued)", 50, 16);
+          doc.fillColor(COLORS.text);
+          doc.y = 64;
           currentY = doc.y + 30;
           currentY = addTableHeader(
             doc,
@@ -367,6 +632,7 @@ async function generatePDFReport(report, reportData) {
           [
             sensor.id,
             sensor.name,
+            sensor.has_gas_sensor ? "Temp+Gas" : "Temp",
             status,
             sensor.location_name || "N/A",
             sensor.last_reading_value ? `${sensor.last_reading_value}C` : "N/A",
@@ -378,16 +644,20 @@ async function generatePDFReport(report, reportData) {
         );
       });
 
-      addFooter(doc, pageNumber++);
+      pageNumber++;
       doc.addPage();
 
       // ==================== TEMPERATURE READINGS PAGE ====================
       if (reportData.readings && reportData.readings.data) {
-        safeAddHeader(doc, "Temperature Analysis");
+        markSection("Temperature Analysis");
+        doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+        doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Temperature Analysis", 50, 16);
+        doc.fillColor(COLORS.text);
+        doc.y = 64;
         safeAddSectionTitle(doc, "Temperature Statistics");
 
         const statsY = doc.y;
-        const statBoxWidth = (doc.page.width - 120) / 4;
+        const statBoxWidth = (doc.page.width - 120) / 5;
 
         const tempStats = [
           {
@@ -409,6 +679,11 @@ async function generatePDFReport(report, reportData) {
             label: "Total",
             value: reportData.readings.total || 0,
             color: COLORS.warning,
+          },
+          {
+            label: "Gas Events",
+            value: reportData.readings.gasEvents || 0,
+            color: COLORS.accent,
           },
         ];
 
@@ -435,9 +710,10 @@ async function generatePDFReport(report, reportData) {
           "Date/Time",
           "Sensor",
           "Temperature",
+          "Gas",
           "Location",
         ];
-        const readingWidths = [120, 100, 70, 100];
+        const readingWidths = [110, 90, 65, 45, 80];
         currentY = doc.y;
 
         currentY = addTableHeader(
@@ -451,9 +727,12 @@ async function generatePDFReport(report, reportData) {
         let rowCount = 0;
         for (const reading of reportData.readings.data.slice(0, 100)) {
           if (currentY > 700) {
-            addFooter(doc, pageNumber++);
+            pageNumber++;
             doc.addPage();
-            safeAddHeader(doc, "Temperature Analysis (Continued)");
+            doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+            doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Temperature Analysis (Continued)", 50, 16);
+            doc.fillColor(COLORS.text);
+            doc.y = 64;
             currentY = doc.y + 30;
             currentY = addTableHeader(
               doc,
@@ -472,6 +751,11 @@ async function generatePDFReport(report, reportData) {
               date,
               reading.Sensor?.name || "Unknown",
               `${reading.temperature.toFixed(1)}C`,
+              reading.gas_detected === null || reading.gas_detected === undefined
+                ? "N/A"
+                : reading.gas_detected
+                  ? "GAS"
+                  : "0",
               reading.Sensor?.location_name || "N/A",
             ],
             50,
@@ -493,14 +777,17 @@ async function generatePDFReport(report, reportData) {
             );
         }
 
-        addFooter(doc, pageNumber++);
         // ── FIX 1: only add a new page when there IS a maintenance section to follow
-        if (reportData.maintenance) doc.addPage();
+        if (reportData.maintenance) { pageNumber++; doc.addPage(); }
       }
 
       // ==================== MAINTENANCE OVERVIEW PAGE ====================
       if (reportData.maintenance) {
-        safeAddHeader(doc, "Maintenance Overview");
+        markSection("Maintenance Overview");
+        doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+        doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Maintenance Overview", 50, 16);
+        doc.fillColor(COLORS.text);
+        doc.y = 64;
         safeAddSectionTitle(doc, "Maintenance Summary");
 
         const mainStats = [
@@ -565,9 +852,12 @@ async function generatePDFReport(report, reportData) {
             reportData.maintenance.byType,
           )) {
             if (currentY > 700) {
-              addFooter(doc, pageNumber++);
+              pageNumber++;
               doc.addPage();
-              safeAddHeader(doc, "Maintenance Overview (Continued)");
+              doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+          doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Maintenance Overview (Continued)", 50, 16);
+          doc.fillColor(COLORS.text);
+          doc.y = 64;
               currentY = doc.y + 30;
               currentY = addTableHeader(
                 doc,
@@ -589,15 +879,18 @@ async function generatePDFReport(report, reportData) {
           }
         }
 
-        addFooter(doc, pageNumber++);
-
         // ── FIX 1: only add a page when detailed tasks actually exist
         if (
           reportData.maintenance.data &&
           reportData.maintenance.data.length > 0
         ) {
+          pageNumber++;
           doc.addPage();
-          safeAddHeader(doc, "Maintenance Tasks Details");
+          markSection("Maintenance Task Details");
+          doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+          doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Maintenance Tasks Details", 50, 16);
+          doc.fillColor(COLORS.text);
+          doc.y = 64;
           safeAddSectionTitle(doc, "Upcoming & Overdue Tasks");
 
           const taskHeaders = [
@@ -615,9 +908,12 @@ async function generatePDFReport(report, reportData) {
           let taskCount = 0;
           for (const task of reportData.maintenance.data.slice(0, 50)) {
             if (currentY > 700) {
-              addFooter(doc, pageNumber++);
+              pageNumber++;
               doc.addPage();
-              safeAddHeader(doc, "Maintenance Tasks Details (Continued)");
+              doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+          doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Maintenance Tasks Details (Continued)", 50, 16);
+          doc.fillColor(COLORS.text);
+          doc.y = 64;
               currentY = doc.y + 30;
               currentY = addTableHeader(
                 doc,
@@ -644,16 +940,36 @@ async function generatePDFReport(report, reportData) {
             );
             taskCount++;
           }
-
-          addFooter(doc, pageNumber++);
         }
       }
+
+      // ==================== APPENDIX ====================
+      pageNumber++;
+      doc.addPage();
+      markSection("Appendix: Methodology");
+      doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+      doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Appendix: Methodology", 50, 16);
+      doc.fillColor(COLORS.text);
+      doc.y = 64;
+      safeAddSectionTitle(doc, "How This Report Was Produced");
+      addBullets(doc, [
+        "Readings are collected hourly from registered sensors; each record carries temperature, GPS position and, for gas-capable sensors, a binary gas flag (1 = gas detected, 0 = clear).",
+        "Sensors without gas hardware store no gas value (shown as N/A) so a 0 reading is never confused with missing hardware.",
+        "Temperature alerts trigger when a reading exceeds the sensor's configured min/max thresholds; every gas detection raises a GAS alert.",
+        `Reporting period: ${periodStr}. Figures on the cover and in the Executive Summary reflect this window.`,
+        "Detailed tables show the first 100 readings and first 50 gas events; complete data is available in the JSON/CSV exports.",
+      ]);
 
       // ==================== FINAL PAGE ====================
       // ── FIX 1: always add this page explicitly; the previous section's
       //    addPage() is gone — we add it here unconditionally.
+      pageNumber++;
       doc.addPage();
-      safeAddHeader(doc, "Report Summary");
+      markSection("Conclusion & Recommendations");
+      doc.rect(0, 0, doc.page.width, 46).fill(COLORS.primary);
+      doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold").text("Report Summary", 50, 16);
+      doc.fillColor(COLORS.text);
+      doc.y = 64;
       safeAddSectionTitle(doc, "Conclusion & Recommendations");
 
       doc
@@ -673,6 +989,11 @@ async function generatePDFReport(report, reportData) {
         "Review temperature thresholds for sensors with frequent alerts",
         "Consider adding additional sensors in critical monitoring areas",
       ];
+      if (reportData.readings?.gasEvents > 0) {
+        recommendations.push(
+          `Investigate ${reportData.readings.gasEvents} gas detection event(s) immediately and verify ventilation in affected areas`
+        );
+      }
 
       recommendations.forEach((rec) => {
         doc.fillColor(COLORS.text).fontSize(10).text(`- ${rec}`, 50, doc.y);
@@ -685,7 +1006,7 @@ async function generatePDFReport(report, reportData) {
         .fillColor(COLORS.textLight)
         .fontSize(8)
         .text(
-          "This report was automatically generated by the Temperature Monitoring System.",
+          "This report was automatically generated by TempGuard.",
           50,
           doc.page.height - 80,
           { align: "center" },
@@ -697,7 +1018,11 @@ async function generatePDFReport(report, reportData) {
         { align: "center" },
       );
 
-      addFooter(doc, pageNumber++);
+      // Fill the reserved Contents page (physical index 1) now that all
+      // section page numbers are known, then stamp footers everywhere.
+      doc.switchToPage(1);
+      drawTocEntries(doc, toc);
+      drawFooters(doc, report);
 
       doc.end();
 
@@ -717,7 +1042,7 @@ async function generateCSVReport(report, reportData) {
     const workbook = new ExcelJS.Workbook();
 
     // Style the workbook
-    workbook.creator = "Temperature Monitoring System";
+    workbook.creator = "TempGuard Monitoring System";
     workbook.lastModifiedBy = "System";
     workbook.created = new Date();
     workbook.modified = new Date();
@@ -771,6 +1096,7 @@ async function generateCSVReport(report, reportData) {
       reportData.sensors?.maintenance || 0,
     ]);
     summarySheet.addRow(["Total Readings", reportData.readings?.total || 0]);
+    summarySheet.addRow(["Gas Events", reportData.readings?.gasEvents || 0]);
     summarySheet.addRow([
       "Average Temperature",
       `${reportData.readings?.averageTemp || 0}°C`,
@@ -810,6 +1136,7 @@ async function generateCSVReport(report, reportData) {
     const sensorHeaders = [
       "ID",
       "Name",
+      "Type",
       "Status",
       "Location",
       "Min Temp",
@@ -826,6 +1153,7 @@ async function generateCSVReport(report, reportData) {
       sensorsSheet.addRow([
         sensor.id,
         sensor.name,
+        sensor.has_gas_sensor ? "Temperature + Gas" : "Temperature",
         sensor.status,
         sensor.location_name || "N/A",
         sensor.min_temp || 0,
@@ -852,6 +1180,7 @@ async function generateCSVReport(report, reportData) {
         "Date/Time",
         "Sensor",
         "Temperature (°C)",
+        "Gas",
         "Location",
         "Status",
       ];
@@ -867,6 +1196,11 @@ async function generateCSVReport(report, reportData) {
           new Date(reading.createdAt).toLocaleString(),
           reading.Sensor?.name || "Unknown",
           reading.temperature,
+          reading.gas_detected === null || reading.gas_detected === undefined
+            ? "N/A"
+            : reading.gas_detected
+              ? "GAS"
+              : "0",
           reading.Sensor?.location_name || "N/A",
           isAbnormal ? "⚠️ Alert" : "✓ Normal",
         ]);

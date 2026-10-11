@@ -33,11 +33,34 @@ exports.getDashboardStats = async (req, res) => {
     // Get alert stats
     const totalAlerts = await Alert.count();
     const unacknowledgedAlerts = await Alert.count({ where: { acknowledged: false } });
+    const gasAlerts = await Alert.count({ where: { type: "GAS_DETECTED" } }).catch(() => 0);
     const recentAlerts = await Alert.findAll({
       include: [{ model: Sensor, attributes: ["id", "name", "location_name"] }],
       order: [["createdAt", "DESC"]],
       limit: 10,
     });
+
+    // Gas stats: NULL = temp-only readings (excluded)
+    const gasEventsTotal = await Reading.count({
+      where: { gas_detected: true },
+      include: [{ model: Sensor, required: true }],
+    }).catch(() => 0);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const gasEvents24h = await Reading.count({
+      where: { gas_detected: true, createdAt: { [Op.gte]: dayAgo } },
+      include: [{ model: Sensor, required: true }],
+    }).catch(() => 0);
+    const gasCapableSensors = await Sensor.count({
+      where: { has_gas_sensor: true },
+    }).catch(() => 0);
+    const sensorsGasActive = await Sensor.count({
+      where: { has_gas_sensor: true, last_gas_detected: true },
+    }).catch(() => 0);
+    const lastGasAlert = await Alert.findOne({
+      where: { type: "GAS_DETECTED" },
+      order: [["createdAt", "DESC"]],
+      attributes: ["createdAt"],
+    }).catch(() => null);
 
     // Get overall temperature stats
     const tempStats = await Reading.findOne({
@@ -76,6 +99,12 @@ exports.getDashboardStats = async (req, res) => {
           : null,
         alertsCount: totalAlerts,
         unacknowledgedAlerts,
+        gasAlerts,
+        gasEventsTotal,
+        gasEvents24h,
+        gasCapableSensors,
+        sensorsGasActive,
+        lastGasEventAt: lastGasAlert ? lastGasAlert.createdAt : null,
       },
       recentAlerts,
     });
@@ -137,6 +166,15 @@ exports.getTemperatureTrends = async (req, res) => {
         [sequelize.fn("MIN", sequelize.col("temperature")), "minTemp"],
         [sequelize.fn("MAX", sequelize.col("temperature")), "maxTemp"],
         [sequelize.fn("COUNT", sequelize.col("Reading.id")), "readingsCount"],
+        [
+          sequelize.fn(
+            "SUM",
+            sequelize.literal(
+              'CASE WHEN "Reading"."gas_detected" = 1 THEN 1 ELSE 0 END'
+            )
+          ),
+          "gasEvents",
+        ],
       ],
       include: [
         {

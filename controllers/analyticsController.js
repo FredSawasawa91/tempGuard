@@ -74,6 +74,19 @@ exports.getAnalyticsSummary = async (req, res) => {
       }
     });
 
+    // Gas events (NULL = temp-only readings, excluded)
+    const gasEvents = await Reading.count({
+      include: [{
+        model: Sensor,
+        where: sensorWhereClause,
+        required: true
+      }],
+      where: {
+        gas_detected: true,
+        ...readingWhereClause
+      }
+    }).catch(() => 0);
+
     res.json({
       success: true,
       summary: {
@@ -83,6 +96,7 @@ exports.getAnalyticsSummary = async (req, res) => {
         totalReadings: stats.totalReadings || 0,
         stdDev: stdDev,
         alertsCount,
+        gasEvents: gasEvents || 0,
       }
     });
   } catch (error) {
@@ -112,6 +126,15 @@ exports.getHourlyAnalytics = async (req, res) => {
         [sequelize.fn("MIN", sequelize.col("temperature")), "minTemp"],
         [sequelize.fn("MAX", sequelize.col("temperature")), "maxTemp"],
         [sequelize.fn("COUNT", sequelize.col("Reading.id")), "readingsCount"],
+        [
+          sequelize.fn(
+            "SUM",
+            sequelize.literal(
+              'CASE WHEN "Reading"."gas_detected" = 1 THEN 1 ELSE 0 END'
+            )
+          ),
+          "gasEvents",
+        ],
       ],
       include: [{
         model: Sensor,
@@ -140,7 +163,7 @@ exports.getSensorComparison = async (req, res) => {
   try {
     const sensors = await Sensor.findAll({
       where: { status: "active" },
-      attributes: ["id", "name"],
+      attributes: ["id", "name", "has_gas_sensor"],
     });
 
     const sensorStats = await Promise.all(
@@ -161,12 +184,17 @@ exports.getSensorComparison = async (req, res) => {
         const latestReading = await Reading.findOne({
           where: { sensor_id: sensor.id },
           order: [["createdAt", "DESC"]],
-          attributes: ["temperature", "createdAt"]
+          attributes: ["temperature", "gas_detected", "createdAt"]
         });
+
+        const gasEvents = await Reading.count({
+          where: { sensor_id: sensor.id, gas_detected: true },
+        }).catch(() => 0);
 
         return {
           id: sensor.id,
           name: sensor.name,
+          has_gas_sensor: !!sensor.has_gas_sensor,
           stats: {
             avgTemp: stats.avgTemp ? parseFloat(stats.avgTemp).toFixed(1) : null,
             maxTemp: stats.maxTemp ? parseFloat(stats.maxTemp).toFixed(1) : null,
@@ -174,6 +202,10 @@ exports.getSensorComparison = async (req, res) => {
             totalReadings: stats.readingsCount || 0,
             latestReading: latestReading ? latestReading.temperature : null,
             latestReadingTime: latestReading ? latestReading.createdAt : null,
+            latestGas: latestReading && latestReading.gas_detected !== null && latestReading.gas_detected !== undefined
+              ? (latestReading.gas_detected ? 1 : 0)
+              : null,
+            gasEvents,
           }
         };
       })

@@ -18,6 +18,12 @@ const Reading = sequelize.define('Reading', {
   longitude: {
     type: DataTypes.DECIMAL(11, 8),
     allowNull: false
+  },
+  gas_detected: {
+    // NULL = sensor has no gas hardware (temp-only); 0/1 = gas sensor value
+    type: DataTypes.BOOLEAN,
+    allowNull: true,
+    defaultValue: null,
   }
 }, {
   timestamps: true
